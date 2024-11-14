@@ -60,8 +60,13 @@ matrix_static_files_container_labels_well_known_matrix_endpoint_traefik_tls_cert
 # Controls whether the compress middleware (https://doc.traefik.io/traefik/middlewares/http/compress/) will be enabled for this router.
 # The web-server only compresses known file types and our /.well-known/matrix/* files have no file extension.
 # As such, they are not being compressed there and we compress them at the Traefik level.
+# The new compression methods Brotli (br) and Zstandard (zstd) introduced in Traefik 3.x seem to require more memory compared to Gzip or no compression.
+# Starting from version 3.2, there is a new feature that allows excluding certain compressions, which can help reduce memory usage.
+# In order to keep the same memory footprint as with Traefik 2 (and avoid a possible memory leak issue) we only allow Gzip (gzip) compression in exchange for a slightly lower performance.
+# See: https://github.com/traefik/traefik/issues/10859
 matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_enabled: true
 matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_minResponseBodyBytes: 100  # noqa var-naming
+matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_encodings: gzip
 
 # Controls whether labels will be added that serve the base domain.
 #
