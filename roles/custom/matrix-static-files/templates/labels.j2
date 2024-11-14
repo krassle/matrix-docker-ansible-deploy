@@ -20,6 +20,7 @@ traefik.http.services.{{ matrix_static_files_identifier }}.loadbalancer.server.p
 {% if matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_enabled %}
 traefik.http.middlewares.{{ matrix_static_files_identifier }}-well-known-compress.compress=true
 traefik.http.middlewares.{{ matrix_static_files_identifier }}-well-known-compress.compress.minResponseBodyBytes={{ matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_minResponseBodyBytes }}
+traefik.http.middlewares.{{ matrix_static_files_identifier }}-well-known-compress.compress.encodings={{ matrix_static_files_container_labels_well_known_matrix_endpoint_middleware_compress_encodings }}
 {% set well_known_matrix_endpoint_middlewares = well_known_matrix_endpoint_middlewares + [matrix_static_files_identifier + '-well-known-compress'] %}
 {% endif %}
 
