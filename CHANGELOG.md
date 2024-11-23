@@ -1,3 +1,91 @@
+# 2024-11-23
+
+## (Backward Compatibility Break) The playbook now defaults to Valkey, instead of KeyDB
+
+**TLDR**: if the playbook installed KeyDB (or Redis) as a dependency for you before, it will now replace it with [Valkey](https://valkey.io/) (a drop-in alternative). We [previously switched from Redis to KeyDB](#backward-compatibility-break-the-playbook-now-defaults-to-keydb-instead-of-redis), but Valkey is a better alternative, so we're switching again.
+
+The playbook used to install Redis or KeyDB if services have a need for a Redis-compatible implementation ([enabling worker support for Synapse](docs/configuring-playbook-synapse.md#load-balancing-with-workers), [enabling Hookshot encryption](docs/configuring-playbook-bridge-hookshot.md#end-to-bridge-encryption), etc.).
+
+Earlier this year, we switched from Redis to KeyDB - see [(Backward Compatibility Break) The playbook now defaults to KeyDB, instead of Redis](#backward-compatibility-break-the-playbook-now-defaults-to-keydb-instead-of-redis).
+
+Because Valkey seems to be a better successor to Redis (than KeyDB) and likely doesn't suffer from [issues like this one](https://github.com/spantaleev/matrix-docker-ansible-deploy/issues/3544), we now replace KeyDB with Valkey.
+
+Valkey (like KeyDB and Redis in the past) is an implicitly enabled dependency - you don't need custom configuration in `vars.yml` to enable it.
+
+Next time your run the playbook (via the `setup-all` tag), **KeyDB will be automatically uninstalled and replaced with Valkey**. Some Synapse downtime may occur while the switch happens.
+
+Users on `arm32` should be aware that there's **neither a prebuilt `arm32` container image for Valkey**, nor the Valkey role supports self-building yet. Users on this architecture likely don't run Synapse with workers, etc., so they're likely in no need of Valkey (or Redis/KeyDB). If Redis is necessary in an `arm32` deployment, disabling Valkey and making the playbook fall back to Redis is possible (see below).
+
+**The playbook still supports Redis** and you can keep using Redis (for now) if you'd like, by adding this additional configuration to your `vars.yml` file:
+
+```yml
+# Explicitly disable both Valkey and KeyDB.
+#
+# Redis will be auto-enabled if necessary,
+# because there's no other Redis-compatible implementation being enabled.
+valkey_enabled: false
+keydb_enabled: false
+```
+
+**The playbook still supports KeyDB** and you can keep using KeyDB (for now) if you'd like, by adding this additional configuration to your `vars.yml` file:
+
+```yml
+# Explicitly disable Valkey  enable KeyDB.
+#
+# Redis will not be auto-enabled beandcause a Redis-compatible implementation (KeyDB) is enabled.
+valkey_enabled: false
+keydb_enabled: true
+```
+
+At some point in time in the future, we'll remove both KeyDB and Redis from the playbook, so we recommend that you migrate to Valkey earlier anyway.
+
+
+# 2024-11-14
+
+## HTTP-compression support for Traefik-based setups
+
+The playbook now **automatically enables HTTP-compression support** for major services powered by the playbook, like [Cinny](./docs/configuring-playbook-client-cinny.md), [Element Web](./docs/configuring-playbook-client-element-web.md), [Hydrogen](./docs/configuring-playbook-client-hydrogen.md), as well as for Matrix Client-Server and Federation APIs (`matrix.example.com`).
+
+Other services installed by the playbook are currently not compression-enabled, but may become so over time.
+This change is rolled out on a per-service basis (as opposed to doing it globally, at the Traefik entrypoint level) to allow certain services or route endpoints which do not behave well when compressed (e.g. [issue 3749](https://github.com/spantaleev/matrix-docker-ansible-deploy/issues/3749)) to be excluded from compression.
+
+A long time ago, various services were operating with `gzip`-compression enabled at the nginx level. Since the switch to Traefik (see [Goodbye, `matrix-nginx-proxy` 🪦](https://github.com/spantaleev/matrix-docker-ansible-deploy/blob/57c5271d9d6265a34a9d9cceb93365f685074f96/CHANGELOG.md#goodbye-matrix-nginx-proxy-)), all services (with the exception of Matrix APIs for Synapse worker-enabled setups which are powered by `nginx` via `synapse-reverse-proxy-companion`) have been operating without HTTP-compression support.
+
+HTTP-compression is now done via Traefik's [compress](https://doc.traefik.io/traefik/middlewares/http/compress/) middleware. We use the default configuration for this middleware, which enables `zstd`, `br` and `gzip` support (in this order).
+This middleware's configuration can be configured via variables in the Traefik role (see `traefik_config_http_middlewares_compression_middleware_options`).
+
+If you're using your own Traefik reverse-proxy server ([Traefik managed by you](./docs/configuring-playbook-own-webserver.md#traefik-managed-by-you)) instead of the playbook's integrated Traefik service, you can benefit from the same by:
+
+- defining a [compress](https://doc.traefik.io/traefik/middlewares/http/compress/) middleware (via the [file](https://doc.traefik.io/traefik/providers/file/) or [Docker](https://doc.traefik.io/traefik/providers/docker/) providers)
+- setting `matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled` to `true`
+- specifying the middleware's name in `matrix_playbook_reverse_proxy_traefik_middleware_compression_name` (e.g. `matrix_playbook_reverse_proxy_traefik_middleware_compression_name: my-compression-middleware@file`)
+
+## Timeout adjustments for Traefik-based setups
+
+The playbook now supports configuring various [transport.respondingTimeouts](https://doc.traefik.io/traefik/routing/entrypoints/#respondingtimeouts) timeout values (`readTimeout`, `writeTimeout`, `idleTimeout`) for the `web`, `web-secure` and `matrix-federation` entrypoints.
+
+If you're using your own Traefik reverse-proxy server ([Traefik managed by you](./docs/configuring-playbook-own-webserver.md#traefik-managed-by-you)) instead of the playbook's integrated Traefik service, you may wish to do similar configuration changes to your setup manually.
+
+The most interesting of these is the `readTimeout` configuration value (the maximum duration for reading the entire request, including the body), which used to default to `60s`.
+For large and slowly progressing file uploads, `60s` would often not be enough for the transfer to finish and uploads would end up being interrupted.
+The playbook now raises the `readTimeout` value to 5 minutes (`300s`) to improve this use-case.
+
+The `traefik_config_entrypoint_web_transport_respondingTimeouts_*` variables (for the `web` entrypoint) cascade to affecting the timeout values for the `web-secure` and `matrix-federation` entrypoints, so you can easily adjust all timeout values using them.
+
+Example of the default timeout values used by the playbook:
+
+```yml
+traefik_config_entrypoint_web_transport_respondingTimeouts_readTimeout: 300s
+
+# 0s means "no timeout"
+traefik_config_entrypoint_web_transport_respondingTimeouts_writeTimeout: 0s
+
+traefik_config_entrypoint_web_transport_respondingTimeouts_idleTimeout: 180s
+```
+
+Alternatively, you may adjust the timeout values for specific entrypoints (like `web-secure` and `matrix-federation`) using dedicated variables (like `traefik_config_entrypoint_web_secure_transport_respondingTimeouts_readTimeout` and `matrix_playbook_public_matrix_federation_api_traefik_entrypoint_config_transport_respondingTimeouts_readTimeout`).
+
+
 # 2024-11-08
 
 ## Support for synapse-admin auto-configuration via /.well-known/matrix/client

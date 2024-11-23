@@ -35,6 +35,9 @@ matrix_playbook_traefik_labels_enabled: "{{ matrix_playbook_reverse_proxy_type i
 matrix_playbook_reverse_proxy_container_network: "{{ traefik_container_network if traefik_enabled else 'traefik' }}"
 matrix_playbook_reverse_proxy_hostname: "{{ traefik_identifier if traefik_enabled else 'traefik' }}"
 
+matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled: "{{ traefik_config_http_middlewares_compression_enabled if (traefik_enabled and traefik_config_http_middlewares_compression_enabled) else false }}"
+matrix_playbook_reverse_proxy_traefik_middleware_compression_name: "{{ (traefik_config_http_middlewares_compression_middleware_name + '@file') if traefik_enabled else '' }}"
+
 # A separate Matrix Federation entrypoint is always enabled, unless the federation port matches one of the ports for existing (default) entrypoints
 matrix_playbook_public_matrix_federation_api_traefik_entrypoint_enabled: "{{ matrix_federation_public_port not in [traefik_config_entrypoint_web_port, traefik_config_entrypoint_web_secure_port] }}"
 
@@ -432,6 +435,8 @@ devture_systemd_service_manager_services_list_auto: |
     ([{'name': (redis_identifier + '.service'), 'priority': 750, 'groups': ['matrix', 'redis']}] if redis_enabled else [])
     +
     ([{'name': (keydb_identifier + '.service'), 'priority': 750, 'groups': ['matrix', 'keydb']}] if keydb_enabled else [])
+    +
+    ([{'name': (valkey_identifier + '.service'), 'priority': 750, 'groups': ['matrix', 'valkey']}] if valkey_enabled else [])
     +
     ([{'name': 'matrix-pantalaimon.service', 'priority': 4000, 'groups': ['matrix', 'pantalaimon']}] if matrix_pantalaimon_enabled else [])
     +
@@ -2200,12 +2205,14 @@ matrix_hookshot_systemd_wanted_services_list: |
     ([(redis_identifier + '.service')] if redis_enabled and matrix_hookshot_cache_redis_host == redis_identifier else [])
     +
     ([(keydb_identifier + '.service')] if keydb_enabled and matrix_hookshot_cache_redis_host == keydb_identifier else [])
+    +
+    ([(valkey_identifier + '.service')] if valkey_enabled and matrix_hookshot_cache_redis_host == valkey_identifier else [])
   }}
 
 # Hookshot's experimental encryption feature (and possibly others) may benefit from Redis, if available.
 # We only connect to Redis if encryption is enabled (not for everyone who has Redis enabled),
 # because connectivity is still potentially troublesome and is to be investigated.
-matrix_hookshot_cache_redis_host: "{{ redis_identifier if redis_enabled and matrix_hookshot_experimental_encryption_enabled else (keydb_identifier if keydb_enabled and matrix_hookshot_experimental_encryption_enabled else '') }}"
+matrix_hookshot_cache_redis_host: "{{ valkey_identifier if valkey_enabled else (redis_identifier if redis_enabled else (keydb_identifier if keydb_enabled else '')) }}"
 
 matrix_hookshot_container_network: "{{ matrix_addons_container_network }}"
 
@@ -2217,6 +2224,8 @@ matrix_hookshot_container_additional_networks_auto: |
       ([redis_container_network] if redis_enabled and matrix_hookshot_cache_redis_host == redis_identifier else [])
       +
       ([keydb_container_network] if keydb_enabled and matrix_hookshot_cache_redis_host == keydb_identifier else [])
+      +
+      ([valkey_container_network] if valkey_enabled and matrix_hookshot_cache_redis_host == valkey_identifier else [])
       +
       ([matrix_playbook_reverse_proxyable_services_additional_network] if matrix_playbook_reverse_proxyable_services_additional_network and matrix_hookshot_container_labels_traefik_enabled else [])
     ) | unique
@@ -4390,11 +4399,11 @@ ntfy_visitor_request_limit_exempt_hosts_hostnames_auto: |
 
 ######################################################################
 #
-# etke/redis
+# redis
 #
 ######################################################################
 
-redis_enabled: "{{ not keydb_enabled and (matrix_synapse_workers_enabled or (matrix_hookshot_enabled and matrix_hookshot_experimental_encryption_enabled)) }}"
+redis_enabled: "{{ not (keydb_enabled or valkey_enabled) and (matrix_synapse_workers_enabled or (matrix_hookshot_enabled and matrix_hookshot_experimental_encryption_enabled)) }}"
 
 redis_identifier: matrix-redis
 
@@ -4405,7 +4414,7 @@ redis_base_path: "{{ matrix_base_data_path }}/redis"
 
 ######################################################################
 #
-# /etke/redis
+# /redis
 #
 ######################################################################
 
@@ -4415,7 +4424,7 @@ redis_base_path: "{{ matrix_base_data_path }}/redis"
 #
 ######################################################################
 
-keydb_enabled: "{{ matrix_synapse_workers_enabled or (matrix_hookshot_enabled and matrix_hookshot_experimental_encryption_enabled) }}"
+keydb_enabled: false
 
 keydb_identifier: matrix-keydb
 
@@ -4438,6 +4447,31 @@ keydb_arch: |-
 # keydb
 #
 ######################################################################
+
+
+######################################################################
+#
+# valkey
+#
+######################################################################
+
+valkey_enabled: "{{ matrix_synapse_workers_enabled or (matrix_hookshot_enabled and matrix_hookshot_experimental_encryption_enabled) }}"
+
+valkey_identifier: matrix-valkey
+
+valkey_uid: "{{ matrix_user_uid }}"
+valkey_gid: "{{ matrix_user_gid }}"
+
+valkey_base_path: "{{ matrix_base_data_path }}/valkey"
+
+valkey_arch: "{{ matrix_architecture }}"
+
+######################################################################
+#
+# valkey
+#
+######################################################################
+
 
 ######################################################################
 #
@@ -4463,6 +4497,9 @@ matrix_client_element_container_labels_traefik_enabled: "{{ matrix_playbook_reve
 matrix_client_element_container_labels_traefik_docker_network: "{{ matrix_playbook_reverse_proxyable_services_additional_network }}"
 matrix_client_element_container_labels_traefik_entrypoints: "{{ traefik_entrypoint_primary }}"
 matrix_client_element_container_labels_traefik_tls_certResolver: "{{ traefik_certResolver_primary }}"
+
+matrix_client_element_container_labels_traefik_compression_middleware_enabled: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled }}"
+matrix_client_element_container_labels_traefik_compression_middleware_name: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_name if matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled else '' }}"
 
 matrix_client_element_default_hs_url: "{{ matrix_homeserver_url }}"
 matrix_client_element_default_is_url: "{{ matrix_identity_server_url }}"
@@ -4513,6 +4550,9 @@ matrix_client_hydrogen_container_labels_traefik_docker_network: "{{ matrix_playb
 matrix_client_hydrogen_container_labels_traefik_entrypoints: "{{ traefik_entrypoint_primary }}"
 matrix_client_hydrogen_container_labels_traefik_tls_certResolver: "{{ traefik_certResolver_primary }}"
 
+matrix_client_hydrogen_container_labels_traefik_compression_middleware_enabled: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled }}"
+matrix_client_hydrogen_container_labels_traefik_compression_middleware_name: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_name if matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled else '' }}"
+
 matrix_client_hydrogen_scheme: "{{ 'https' if matrix_playbook_ssl_enabled else 'http' }}"
 
 matrix_client_hydrogen_default_hs_url: "{{ matrix_homeserver_url }}"
@@ -4545,6 +4585,9 @@ matrix_client_cinny_container_labels_traefik_enabled: "{{ matrix_playbook_revers
 matrix_client_cinny_container_labels_traefik_docker_network: "{{ matrix_playbook_reverse_proxyable_services_additional_network }}"
 matrix_client_cinny_container_labels_traefik_entrypoints: "{{ traefik_entrypoint_primary }}"
 matrix_client_cinny_container_labels_traefik_tls_certResolver: "{{ traefik_certResolver_primary }}"
+
+matrix_client_cinny_container_labels_traefik_compression_middleware_enabled: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled }}"
+matrix_client_cinny_container_labels_traefik_compression_middleware_name: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_name if matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled else '' }}"
 
 matrix_client_cinny_scheme: "{{ 'https' if matrix_playbook_ssl_enabled else 'http' }}"
 
@@ -4652,6 +4695,8 @@ matrix_synapse_container_additional_networks_auto: |
       +
       ([keydb_container_network] if matrix_synapse_redis_enabled and matrix_synapse_redis_host == keydb_identifier else [])
       +
+      ([valkey_container_network] if matrix_synapse_redis_enabled and matrix_synapse_redis_host == valkey_identifier else [])
+      +
       ([exim_relay_container_network] if (exim_relay_enabled and matrix_synapse_email_enabled and matrix_synapse_email_smtp_host == exim_relay_identifier and matrix_synapse_container_network != exim_relay_container_network) else [])
       +
       ([matrix_ma1sd_container_network] if (matrix_ma1sd_enabled and matrix_synapse_account_threepid_delegates_msisdn == matrix_synapse_account_threepid_delegates_msisdn_mas1sd_url and matrix_synapse_container_network != matrix_ma1sd_container_network) else [])
@@ -4663,6 +4708,9 @@ matrix_synapse_container_labels_traefik_docker_network: "{{ matrix_playbook_reve
 matrix_synapse_container_labels_traefik_entrypoints: "{{ traefik_entrypoint_primary }}"
 matrix_synapse_container_labels_traefik_tls_certResolver: "{{ traefik_certResolver_primary }}"
 matrix_synapse_container_labels_traefik_hostname: "{{ matrix_server_fqn_matrix }}"
+
+matrix_synapse_container_labels_traefik_compression_middleware_enabled: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled }}"
+matrix_synapse_container_labels_traefik_compression_middleware_name: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_name if matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled else '' }}"
 
 matrix_synapse_container_labels_matrix_labels_enabled: "{{ not matrix_synapse_workers_enabled }}"
 
@@ -4736,6 +4784,8 @@ matrix_synapse_systemd_required_services_list_auto: |
     +
     ([keydb_identifier ~ '.service'] if matrix_synapse_redis_enabled and matrix_synapse_redis_host == keydb_identifier else [])
     +
+    ([valkey_identifier ~ '.service'] if matrix_synapse_redis_enabled and matrix_synapse_redis_host == valkey_identifier else [])
+    +
     (['matrix-goofys.service'] if matrix_s3_media_store_enabled else [])
     +
     (['matrix-authentication-service.service'] if (matrix_authentication_service_enabled and matrix_synapse_experimental_features_msc3861_enabled) else [])
@@ -4749,9 +4799,9 @@ matrix_synapse_systemd_wanted_services_list_auto: |
   }}
 
 # Synapse workers (used for parallel load-scaling) need Redis for IPC.
-matrix_synapse_redis_enabled: "{{ redis_enabled or keydb_enabled }}"
-matrix_synapse_redis_host: "{{ redis_identifier if redis_enabled else (keydb_identifier if keydb_enabled else '') }}"
-matrix_synapse_redis_password: "{{ redis_connection_password if redis_enabled else (keydb_connection_password if keydb_enabled else '') }}"
+matrix_synapse_redis_enabled: "{{ redis_enabled or keydb_enabled or valkey_enabled }}"
+matrix_synapse_redis_host: "{{ valkey_identifier if valkey_enabled else (redis_identifier if redis_enabled else (keydb_identifier if keydb_enabled else '')) }}"
+matrix_synapse_redis_password: "{{ valkey_connection_password if valkey_enabled else (redis_connection_password if redis_enabled else (keydb_connection_password if keydb_enabled else '')) }}"
 
 matrix_synapse_container_extra_arguments_auto: "{{ matrix_homeserver_container_extra_arguments_auto }}"
 matrix_synapse_app_service_config_files_auto: "{{ matrix_homeserver_app_service_config_files_auto }}"
@@ -4853,6 +4903,9 @@ matrix_synapse_reverse_proxy_companion_container_labels_traefik_docker_network: 
 matrix_synapse_reverse_proxy_companion_container_labels_traefik_entrypoints: "{{ traefik_entrypoint_primary }}"
 matrix_synapse_reverse_proxy_companion_container_labels_traefik_tls_certResolver: "{{ traefik_certResolver_primary }}"
 matrix_synapse_reverse_proxy_companion_container_labels_traefik_hostname: "{{ matrix_server_fqn_matrix }}"
+
+matrix_synapse_reverse_proxy_companion_container_labels_traefik_compression_middleware_enabled: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled }}"
+matrix_synapse_reverse_proxy_companion_container_labels_traefik_compression_middleware_name: "{{ matrix_playbook_reverse_proxy_traefik_middleware_compression_name if matrix_playbook_reverse_proxy_traefik_middleware_compression_enabled else '' }}"
 
 matrix_synapse_reverse_proxy_companion_container_labels_public_client_synapse_client_api_enabled: "{{ matrix_synapse_container_labels_public_client_synapse_client_api_enabled }}"
 matrix_synapse_reverse_proxy_companion_container_labels_public_client_synapse_admin_api_enabled: "{{ matrix_synapse_container_labels_public_client_synapse_admin_api_enabled }}"
@@ -5941,6 +5994,10 @@ traefik_base_path: "{{ matrix_base_data_path }}/traefik"
 
 traefik_uid: "{{ matrix_user_uid }}"
 traefik_gid: "{{ matrix_user_gid }}"
+
+# It's common for setups to deal with large file uploads which may take longer than the default readTimeout (60s).
+# This override (for the `web` entrypoint) also cascades to overriding the `web-secure` entrypoint and the `matrix-federation` entrypoint.
+traefik_config_entrypoint_web_transport_respondingTimeouts_readTimeout: 300s
 
 traefik_additional_entrypoints_auto: |
   {{

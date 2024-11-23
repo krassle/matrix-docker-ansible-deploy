@@ -1,8 +1,15 @@
 # Serving the base domain (optional)
 
-This playbook sets up services on your Matrix server (`matrix.example.com`). To have this server officially be responsible for Matrix services for the base domain (`example.com`), you need to set up [Server Delegation](howto-server-delegation.md). This is normally done by [configuring well-known](configuring-well-known.md) files on the base domain.
+By default, this playbook sets up services on your Matrix server (`matrix.example.com`), but has it configured so that it presents itself as the base domain (`example.com`). To have this server officially be responsible for Matrix services for the base domain (`example.com`), you need to set up server delegation / redirection.
 
-People who don't have a separate server to dedicate to the base domain have trouble arranging this.
+As we discuss in [Server Delegation](howto-server-delegation.md), server delegation / redirection can be configured in either of these ways:
+
+- Setting up a `/.well-known/matrix/server` file on the base domain (`example.com`)
+- Setting up a `_matrix._tcp` DNS SRV record
+
+For simplicity reasons, this playbook recommends you to set up server delegation via a `/.well-known/matrix/server` file.
+
+However, those who don't have a separate server to dedicate to the base domain have trouble arranging this.
 
 Usually, there are 2 options:
 
@@ -12,7 +19,7 @@ Usually, there are 2 options:
 
 This documentation page tells you how to do the latter. With some easy changes, we make it possible to serve the base domain from the Matrix server via the integrated webserver.
 
-Just **adjust your DNS records**, so that your base domain is pointed to the Matrix server's IP address (using a DNS `A` record) **and then add the following configuration** to your `inventory/host_vars/matrix.example.com/vars.yml` file:
+Just [**adjust your DNS records**](configuring-dns.md), so that your base domain is pointed to the Matrix server's IP address (using a DNS `A` record) **and then add the following configuration** to your `inventory/host_vars/matrix.example.com/vars.yml` file:
 
 ```yaml
 matrix_static_files_container_labels_base_domain_enabled: true
@@ -22,7 +29,7 @@ Doing this, the playbook will:
 
 - obtain an SSL certificate for the base domain, just like it does for all other domains (see [how we handle SSL certificates](configuring-playbook-ssl-certificates.md))
 
-- serve the `/.well-known/matrix/*` files which are necessary for [Federation Server Discovery](configuring-well-known.md#introduction-to-client-server-discovery) (also see [Server Delegation](howto-server-delegation.md)) and [Client-Server discovery](configuring-well-known.md#introduction-to-client-server-discovery)
+- serve the `/.well-known/matrix/*` files which are necessary for [Federation Server Discovery](configuring-well-known.md#federation-server-discovery) (also see [Server Delegation](howto-server-delegation.md)) and [Client-Server discovery](configuring-well-known.md#client-server-discovery)
 
 - serve a simple homepage at `https://example.com` with content `Hello from example.com` (configurable via the `matrix_static_files_file_index_html_template` variable). You can also [serve a more complicated static website](#serving-a-static-website-at-the-base-domain).
 
